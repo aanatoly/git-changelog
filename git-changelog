@@ -189,30 +189,30 @@ def get_refed_issues(from_, to_):
     reg = re.compile(reg)
 
     def start_start(line):
-        log.debug("enter")
+        # log.debug("enter")
         data['state'] = "start"
 
     def start_cont(line):
-        log.debug("enter")
+        # log.debug("enter")
         if line.startswith("commit "):
             commit_start(line)
 
     def commit_start(line):
-        log.debug("enter")
+        # log.debug("enter")
         data['state'] = "commit"
         data['commit'] = line.split()[1]
         header_start(line)
 
     def commit_cont(line):
-        log.debug("enter")
+        # log.debug("enter")
         pass
 
     def body_start(line):
-        log.debug("enter")
+        # log.debug("enter")
         data['state'] = "body"
 
     def body_cont(line):
-        log.debug("enter")
+        # log.debug("enter")
         # log.debug("body: '%s'", line)
         if line.startswith("commit "):
             # end_start()
@@ -232,11 +232,11 @@ def get_refed_issues(from_, to_):
                     data['issues'].append(issue)
 
     def header_start(line):
-        log.debug("enter")
+        # log.debug("enter")
         data['state'] = "header"
 
     def header_cont(line):
-        log.debug("enter")
+        # log.debug("enter")
         if line == '':
             body_start(line)
 
@@ -250,7 +250,7 @@ def get_refed_issues(from_, to_):
         line = proc.stdout.readline()
         llen = len(line)
         line = line.rstrip()
-        log.debug("line: state %s, chars %d, '%s'", data['state'], llen, line)
+        # log.debug("line: state %s, chars %d, '%s'", data['state'], llen, line)
         if llen == 0:
             break
         if data['state'] == "start":
@@ -264,11 +264,85 @@ def get_refed_issues(from_, to_):
     return data['issues']
 
 
+def get_all_github_issues_debug(origin):
+    try:
+        ii = json.loads(open('github.json', 'r').read())
+        return ii
+    except Exception as e:
+        print "================\n", e
+        return []
+
+
+def get_all_github_issues_real(origin):
+    origin = origin.split('/')
+    owner = origin[3]
+    repo = origin[4]
+    if repo.endswith(".git"):
+        repo = repo[:-4]
+    print "Fetch issues from", '/'.join(origin)
+    print "Enter password, or leave empty for unauthenticated access"
+    password = raw_input("Password: ").strip()
+    log.debug("gihub: owner %s, repo %s, password '%s'",
+              owner, repo, password)
+
+    ii = []
+    page=1
+    cmd = ['curl', '-s']
+    if password:
+        cmd += ['-u', owner + ':' + password]
+    url = "https://api.github.com/repos/%s/%s/issues" % (owner, repo)
+    while True:
+        if page > 5:
+            break
+        purl = url + '?state=closed&per_page=30&page=' + str(page)
+        pcmd = cmd + [purl]
+        log.debug("cmd '%s'", pcmd)
+        text = sp.check_output(pcmd)
+        try:
+            i = json.loads(text)
+        except:
+            break
+        if not isinstance(i, list) or len(i) == 0:
+            break
+        ii += i
+        page += 1
+
+    return ii
+
+
+def get_all_github_issues(origin):
+    lii = []
+    if args.debug:
+        lii = get_all_github_issues_debug(origin)
+        # log.debug("debug lii %s", json.dumps(lii, indent=4))
+    if not lii:
+        lii = get_all_github_issues_real(origin)
+        # log.debug("real lii %s", json.dumps(lii, indent=4))
+    if args.debug:
+        open('github.json', 'w').write(json.dumps(lii, indent=4))
+    aii = {}
+    for i in lii:
+        no = str(i['number'])
+        if no not in aii:
+            aii[no] = {}
+            for k in ['html_url', 'state', 'title', 'number']:
+                aii[no][k] = i[k]
+
+    return aii
+
 def get_all_issues():
+    cmd = 'git remote -v'.split()
+    log.debug("cmd '%s'", cmd)
+    origins = sp.check_output(cmd).splitlines()
+    for line in origins:
+        origin = line.split()[1]
+        if origin.startswith('https://github.com/'):
+            return get_all_github_issues(origin)
     return {}
 
 
 def print_ref(ref, ii, aii):
+    log.debug("ref %s", ref)
     cmd = 'git for-each-ref --sort=taggerdate --format'.split()
     cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
     log.debug("cmd '%s'", cmd)
@@ -277,13 +351,22 @@ def print_ref(ref, ii, aii):
     ver = '/'.join(ref.split('/')[2:])
     s = "## Version: %s\nDate: %s\n" % (ver, date)
     s += '\n'
-    if ii:
-        for i in ii:
-            s += ' * #%s\n' % i
-        s += '\n'
-    print s
+    if not ii:
+        return s
 
-
+    links = ''
+    for no in ii:
+        log.debug("no '%s', %s, known %s", no, type(no), (no in aii.keys()))
+        if no in aii.keys():
+            i = aii[no]
+            # s += ' * [#%s][#%s] %s\n' % (i['number'], i['number'], i['title'])
+            s += ' * [#%s] %s\n' % (i['number'], i['title'])
+            links += '[#%s]: %s\n' % (i['number'], i['html_url'])
+        else:
+            s += ' * #%s\n' % no
+    s += '\n'
+    s += links
+    return s
 
 
 def main():
@@ -293,13 +376,14 @@ def main():
     chlog = []
     while len(tl) > 1:
         ii = get_refed_issues(tl[1], tl[0])
-        log.debug("Version %s issues %s", tl[0], ii)
         chlog.append([tl[0], ii])
         del tl[0]
 
-    ii = get_all_issues()
+    aii = get_all_issues()
+    log.debug("aii %s", json.dumps(aii, indent=4))
     for c in chlog:
-        print_ref(c[0], c[1], ii)
+        s = print_ref(c[0], c[1], aii)
+        print s
 
 
 if __name__ == '__main__':
