@@ -95,6 +95,20 @@ def signal_handler(signal, frame):
     print
     sys.exit(1)
 
+def reg_issues():
+    regs = ['#(?P<num>\d+)\W', '\Wgh-(?P<num2>\d+)\W']
+    regs = ['(%s)' % r for r in regs]
+    reg = '(?P<act>\w+\s+)?' + '|'.join(regs)
+    reg = re.compile(reg)
+    return reg
+
+reg = reg_issues()
+closed = [
+    'close', 'closes', 'closed',
+    'fix', 'fixes', 'fixed',
+    'resolve', 'resolves', 'resolved'
+]
+
 ############################################
 # Issue Provders
 ############################################
@@ -142,8 +156,11 @@ class Issues(object):
             i = self.issues[ino]
             if i['state'] != 'closed' and issues[ino]['state'] != 'closed':
                 continue
-            chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
-            links += '[#%s]: %s\n' % (i['number'], i['url'])
+            if 'title' in i:
+                chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
+                links += '[#%s]: %s\n' % (i['number'], i['url'])
+            else:
+                chlog += ' * [#%s]\n' % (i['number'], )
         if chlog:
             chlog += '\n'
         if links:
@@ -197,6 +214,46 @@ class GithubIssues(Issues):
             page += 1
 
 
+class LocalRepoIssues(Issues):
+    def __init__(self):
+        super(LocalRepoIssues, self).__init__()
+
+
+    def load(self):
+        cmd = 'git log --pretty=medium'.split()
+        log.debug("cmd '%s'", cmd)
+        proc = sp.Popen(cmd, stdout=sp.PIPE)
+        while True:
+            line = proc.stdout.readline()
+            if not line:
+                break
+            line = line.rstrip()
+            if not (line and line[0].isspace()):
+                continue
+            for m in reg.finditer(line):
+                issue = m.group('num')
+                if not issue:
+                    issue = m.group('num2')
+                if not issue:
+                    continue
+                act = m.group('act')
+                if act is None:
+                    act = ''
+                else:
+                    act = act.strip()
+                if act in closed:
+                    state = "closed"
+                else:
+                    state = "open"
+                log.debug("issue %s act '%s'", issue, state)
+                if issue not in self.issues:
+                    i = {
+                        "number": issue,
+                        "state": state
+                    }
+                    self.issues[issue] = i
+                elif state == "closed":
+                    self.issues[issue]['state'] = 'closed'
 
 ############################################
 # Main
@@ -253,19 +310,10 @@ def time_line():
 
 def get_refed_issues(from_, to_):
 
-    closed = [
-        'close', 'closes', 'closed',
-        'fix', 'fixes', 'fixed',
-        'resolve', 'resolves', 'resolved'
-    ]
 
     data = {
         'issues': {}
     }
-    regs = ['#(?P<num>\d+)\W', '\Wgh-(?P<num2>\d+)\W']
-    regs = ['(%s)' % r for r in regs]
-    reg = '(?P<act>\w+\s+)?' + '|'.join(regs)
-    reg = re.compile(reg)
 
     def start_start(line):
         # log.debug("enter")
@@ -375,7 +423,7 @@ def get_all_issues():
             if repo.endswith(".git"):
                 repo = repo[:-4]
             return GithubIssues(user, repo)
-    return Issues()
+    return LocalRepoIssues()
 
 
 def main():
