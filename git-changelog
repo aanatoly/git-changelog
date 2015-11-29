@@ -120,21 +120,35 @@ class Issues(object):
             pass
 
 
-    def changelog(self, issues):
+    def changelog(self, ref, issues):
         '''
         Returns changelog composed from closed issues among `issues`
         '''
+
+        cmd = 'git for-each-ref --sort=taggerdate --format'.split()
+        cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
+        log.debug("cmd '%s'", cmd)
+        date = sp.check_output(cmd).strip().split()[:2]
+        date = ' '.join(date)
+        ver = '/'.join(ref.split('/')[2:])
+        header = "## Version: %s\nDate: %s\n" % (ver, date)
+        header += '\n'
+
         chlog = ''
         links = ''
-        for ino in issues:
+        for ino in sorted(issues.keys()):
             if ino not in self.issues:
                 continue
-            i = self.issue[ino]
-            if i['status'] != 'closed':
+            i = self.issues[ino]
+            if i['state'] != 'closed' and issues[ino]['state'] != 'closed':
                 continue
             chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
-            links += '[#%s]: %s\n' % (i['number'], i['html_url'])
-        return  chlog + '\n' + links + '\n'
+            links += '[#%s]: %s\n' % (i['number'], i['url'])
+        if chlog:
+            chlog += '\n'
+        if links:
+            links += '\n'
+        return  header + chlog + links
 
 
 class GithubIssues(Issues):
@@ -235,6 +249,7 @@ def time_line():
     tl.append(branch_ref)
     log.debug("tl %s", json.dumps(tl, indent=4))
     return tl
+
 
 def get_refed_issues(from_, to_):
 
@@ -343,115 +358,11 @@ def get_refed_issues(from_, to_):
         else:
             pass
 
-    log.debug("issues %s", json.dumps(data['issues'], indent=4))
+    log.debug("issues %s\n%s", to_, json.dumps(data['issues'], indent=4))
     return data['issues']
 
 
-def get_all_github_issues_debug(origin):
-    try:
-        ii = json.loads(open('github.json', 'r').read())
-        return ii
-    except Exception as e:
-        print "================\n", e
-        return []
-
-
-def get_all_github_issues_real(origin):
-    origin = origin.split('/')
-    owner = origin[3]
-    repo = origin[4]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    print "Fetch issues from", '/'.join(origin)
-    print "Enter password, or leave empty for unauthenticated access"
-    password = raw_input("Password: ").strip()
-    log.debug("gihub: owner %s, repo %s, password '%s'",
-              owner, repo, password)
-
-    ii = []
-    page=1
-    cmd = ['curl', '-s']
-    if password:
-        cmd += ['-u', owner + ':' + password]
-    url = "https://api.github.com/repos/%s/%s/issues" % (owner, repo)
-    while True:
-        if page > 5:
-            break
-        purl = url + '?state=all&per_page=30&page=' + str(page)
-        pcmd = cmd + [purl]
-        log.debug("cmd '%s'", pcmd)
-        text = sp.check_output(pcmd)
-        try:
-            i = json.loads(text)
-        except:
-            break
-        if not isinstance(i, list) or len(i) == 0:
-            break
-        ii += i
-        page += 1
-
-    return ii
-
-
-def get_all_github_issues(origin):
-    lii = []
-    if args.debug:
-        lii = get_all_github_issues_debug(origin)
-        # log.debug("debug lii %s", json.dumps(lii, indent=4))
-    if not lii:
-        lii = get_all_github_issues_real(origin)
-        # log.debug("real lii %s", json.dumps(lii, indent=4))
-    if args.debug:
-        open('github.json', 'w').write(json.dumps(lii, indent=4))
-    aii = {}
-    for i in lii:
-        no = str(i['number'])
-        if no not in aii:
-            aii[no] = {}
-            for k in ['html_url', 'state', 'title', 'number']:
-                aii[no][k] = i[k]
-
-    return aii
-
 def get_all_issues():
-    cmd = 'git remote -v'.split()
-    log.debug("cmd '%s'", cmd)
-    origins = sp.check_output(cmd).splitlines()
-    for line in origins:
-        origin = line.split()[1]
-        if origin.startswith('https://github.com/'):
-            return get_all_github_issues(origin)
-    return {}
-
-
-def print_ref(ref, ii, aii):
-    log.debug("ref %s", ref)
-    cmd = 'git for-each-ref --sort=taggerdate --format'.split()
-    cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
-    log.debug("cmd '%s'", cmd)
-    date = sp.check_output(cmd).strip().split()[:2]
-    date = ' '.join(date)
-    ver = '/'.join(ref.split('/')[2:])
-    s = "## Version: %s\nDate: %s\n" % (ver, date)
-    s += '\n'
-    if not ii:
-        return s
-
-    links = ''
-    for no in ii:
-        log.debug("no '%s', %s, known %s", no, type(no), (no in aii.keys()))
-        if no in aii.keys():
-            i = aii[no]
-            # s += ' * [#%s][#%s] %s\n' % (i['number'], i['number'], i['title'])
-            s += ' * [#%s] %s\n' % (i['number'], i['title'])
-            links += '[#%s]: %s\n' % (i['number'], i['html_url'])
-        else:
-            s += ' * #%s\n' % no
-    s += '\n'
-    s += links
-    return s
-
-def get_all_issues_new():
     cmd = 'git remote -v'.split()
     log.debug("cmd '%s'", cmd)
     origins = sp.check_output(cmd).splitlines()
@@ -470,7 +381,7 @@ def get_all_issues_new():
 def main():
     signal.signal(signal.SIGINT, signal_handler)
 
-    aii = get_all_issues_new()
+    aii = get_all_issues()
     log.debug("%s", aii)
     tl = time_line()
 
@@ -478,19 +389,8 @@ def main():
     chlog = []
     while len(tl) > 1:
         ii = get_refed_issues(tl[1], tl[0])
-        for no in ii:
-            if ii[no]['state'] == 'closed':
-                aii.close_issue(no)
-        chlog.append([tl[0], ii])
+        print aii.changelog(tl[0], ii)
         del tl[0]
-    log.debug("chlog %s", json.dumps(chlog, indent=4))
-    exit(0)
-
-
-    # log.debug("aii %s", json.dumps(aii, indent=4))
-    # for c in chlog:
-    #     s = print_ref(c[0], c[1], aii)
-    #     print s
 
 
 if __name__ == '__main__':
