@@ -1,0 +1,190 @@
+#!/usr/bin/python
+
+'''Print changelog
+Requires git:
+
+ * 1.5.7 for 'git branch --contains'
+
+'''
+
+prog_name = "git-changelog"
+prog_version = "0.1"
+prog_epilog = '''
+Example:
+   %(prog)s --rare
+   %(prog)s --trends
+'''
+
+
+############################################
+# Imports
+############################################
+
+import logging
+import argparse
+import json
+import os
+import sys
+import signal
+import time
+import subprocess as sp
+
+############################################
+# Logging
+############################################
+
+try:
+    # Module logging_conf should intialize root logger and, perhaps some
+    # others, and assign 'log' variable to proper logger.
+    from logging_conf import log
+except:
+    log = logging.getLogger()
+    log.setLevel(logging.WARNING)
+    # log.setLevel(logging.DEBUG)
+    h = logging.StreamHandler()
+    # f = MyFormatter()
+    f = logging.Formatter()
+    h.setFormatter(f)
+    log.addHandler(h)
+
+
+############################################
+# Argument parsing
+############################################
+
+p = argparse.ArgumentParser(
+    prog=prog_name,
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    description=__doc__,
+    epilog=prog_epilog)
+p.add_argument("--debug", help="debug mode",
+               dest='debug', action="store_true")
+p.add_argument("--version", action='version',
+               version='%(prog)s ' + prog_version)
+p.add_argument("-v", help="verbose mode",
+               dest='verbose', action="store_true")
+
+p.add_argument("-n", help="Search first N shows only",
+               metavar='N', dest="limit", type=int, default=30)
+p.add_argument("--scan-rare",
+               help="Scan rare (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
+p.add_argument("--scan-watchlist",
+               help="Scan watchlist (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
+p.add_argument("--scan-local",
+               help="Scan local torrents (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
+p.add_argument("--search-kat",
+               help="Search KickAss Torrents (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
+p.add_argument("--search-air-dates",
+               help="Search Air Dates (default: %(default)s)",
+               choices=['yes', 'no'], default='yes')
+p.add_argument("--search-status",
+               help="Search IsMyShowCancelled (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
+p.add_argument("--search-trends",
+               help="Search KAT for trends (default: %(default)s)",
+               choices=['yes', 'no'], default='no')
+p.add_argument("--rare", help="Show rare shows",
+               dest='rare', action="store_true")
+p.add_argument("--trends", help="Show trends",
+               dest='trends', action="store_true")
+p.add_argument("name",
+               help="Show name",
+               nargs='?')
+
+args = p.parse_args()
+
+if args.verbose:
+    log.setLevel(logging.INFO)
+if args.debug:
+    log.setLevel(logging.DEBUG)
+
+log.debug("Args: %s", json.dumps(vars(args), indent=4, sort_keys=True))
+
+############################################
+# Misc
+############################################
+
+def mkdir_p(path):
+    path = os.path.expanduser(path)
+    try:
+        os.makedirs(path)
+    except OSError as exc:  # Python >2.5
+        if exc.errno == os.errno.EEXIST and os.path.isdir(path):
+            pass
+        else:
+            raise
+    return path
+
+
+def signal_handler(signal, frame):
+    print
+    sys.exit(1)
+
+
+############################################
+# Main
+############################################
+
+def time_line():
+
+    tl = []
+
+    # root commit
+    cmd = 'git rev-list --max-parents=0 HEAD'.split()
+    log.debug("cmd '%s'", cmd)
+    root = sp.check_output(cmd).strip()
+    log.debug("root '%s'", root)
+    tl.append(root)
+
+    # current branch
+    cmd = 'git rev-parse --abbrev-ref HEAD'.split()
+    log.debug("cmd '%s'", cmd)
+    branch = sp.check_output(cmd).strip()
+    log.debug("branch '%s'", branch)
+
+    # tags
+    cmd = 'git for-each-ref --sort=taggerdate --format'.split()
+    cmd += ['%(refname) %(taggerdate:iso8601)', 'refs/tags']
+    log.debug("cmd '%s'", cmd)
+    tags = sp.check_output(cmd).strip().splitlines()
+    ntags = []
+    for tag in tags:
+        # log.debug("tag '%s'", tag)
+        tag = tag.split()
+        log.debug("tag '%s'", tag[0])
+        cmd = 'git branch --contains'.split()
+        cmd += [tag[0]]
+        # log.debug("cmd '%s'", cmd)
+        bs = sp.check_output(cmd).strip().splitlines()
+        for i, t in enumerate(bs):
+            t = t.strip()
+            if t.startswith('* '):
+                t = t[2:]
+            bs[i] = t
+        log.debug("bs '%s'", bs)
+        if branch in bs:
+            tl.append(tag[0])
+            log.debug("tag '%s' reachable from '%s'", tag[0], branch)
+        else:
+            log.debug("tag '%s' unreachable from '%s'", tag[0], branch)
+
+    tl.append(branch)
+    log.debug("tl %s", json.dumps(tl, indent=4))
+    return tl
+
+def print_log(from_, to_):
+    log.debug("%s vs %s", from_, to_)
+
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
+    tl = time_line()
+    for i in range(len(tl) - 1):
+        print_log(tl[i], tl[i + 1])
+
+
+if __name__ == '__main__':
+    main()
