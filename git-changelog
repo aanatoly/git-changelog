@@ -28,6 +28,7 @@ import sys
 import signal
 import time
 import subprocess as sp
+import re
 
 ############################################
 # Logging
@@ -141,9 +142,10 @@ def time_line():
     tl.append(root)
 
     # current branch
-    cmd = 'git rev-parse --abbrev-ref HEAD'.split()
+    cmd = 'git rev-parse --symbolic-full-name HEAD'.split()
     log.debug("cmd '%s'", cmd)
-    branch = sp.check_output(cmd).strip()
+    branch_ref = sp.check_output(cmd).strip()
+    branch = branch_ref.split('refs/heads/')[1]
     log.debug("branch '%s'", branch)
 
     # tags
@@ -172,19 +174,128 @@ def time_line():
         else:
             log.debug("tag '%s' unreachable from '%s'", tag[0], branch)
 
-    tl.append(branch)
+    tl.append(branch_ref)
     log.debug("tl %s", json.dumps(tl, indent=4))
     return tl
 
-def print_log(from_, to_):
-    log.debug("%s vs %s", from_, to_)
+def get_refed_issues(from_, to_):
+
+    data = {
+        'issues': []
+    }
+    regs = ['#(?P<num>\d+)\W', '\Wgh-(?P<num2>\d+)\W']
+    regs = ['(%s)' % r for r in regs]
+    reg = '|'.join(regs)
+    reg = re.compile(reg)
+
+    def start_start(line):
+        log.debug("enter")
+        data['state'] = "start"
+
+    def start_cont(line):
+        log.debug("enter")
+        if line.startswith("commit "):
+            commit_start(line)
+
+    def commit_start(line):
+        log.debug("enter")
+        data['state'] = "commit"
+        data['commit'] = line.split()[1]
+        header_start(line)
+
+    def commit_cont(line):
+        log.debug("enter")
+        pass
+
+    def body_start(line):
+        log.debug("enter")
+        data['state'] = "body"
+
+    def body_cont(line):
+        log.debug("enter")
+        # log.debug("body: '%s'", line)
+        if line.startswith("commit "):
+            # end_start()
+            commit_start(line)
+            return
+        if not line:
+            return
+        if not line[0].isspace():
+            return
+        for m in reg.finditer(line):
+            issue = m.group('num')
+            if not issue:
+                issue = m.group('num2')
+            if issue:
+                # log.info("issue %s", issue)
+                if issue not in data['issues']:
+                    data['issues'].append(issue)
+
+    def header_start(line):
+        log.debug("enter")
+        data['state'] = "header"
+
+    def header_cont(line):
+        log.debug("enter")
+        if line == '':
+            body_start(line)
+
+    # log.info("log: %s vs %s", from_, to_)
+    cmd = 'git log --pretty=medium'.split()
+    cmd += [ from_ + '..' + to_]
+    log.debug("cmd '%s'", cmd)
+    proc = sp.Popen(cmd, stdout=sp.PIPE)
+    start_start('')
+    while True:
+        line = proc.stdout.readline()
+        llen = len(line)
+        line = line.rstrip()
+        log.debug("line: state %s, chars %d, '%s'", data['state'], llen, line)
+        if llen == 0:
+            break
+        if data['state'] == "start":
+            start_cont(line)
+        elif data['state'] == "header":
+            header_cont(line)
+        elif data['state'] == "body":
+            body_cont(line)
+        else:
+            pass
+    return data['issues']
+
+
+def print_ref(ref, ii):
+    cmd = 'git for-each-ref --sort=taggerdate --format'.split()
+    cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
+    log.debug("cmd '%s'", cmd)
+    date = sp.check_output(cmd).strip().split()[:2]
+    date = ' '.join(date)
+    ver = '/'.join(ref.split('/')[2:])
+    s = "## Version: %s\nDate: %s\n" % (ver, date)
+    s += '\n'
+    if ii:
+        for i in ii:
+            s += ' * #%s\n' % i
+        s += '\n'
+    print s
+
+
+
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
     tl = time_line()
-    for i in range(len(tl) - 1):
-        print_log(tl[i], tl[i + 1])
+    tl.reverse()
+    chlog = []
+    while len(tl) > 1:
+        ii = get_refed_issues(tl[1], tl[0])
+        log.debug("Version %s issues %s", tl[0], ii)
+        chlog.append([tl[0], ii])
+        del tl[0]
 
+    for c in chlog:
+        print_ref(c[0], c[1])
+    # print_log(tl[-2], tl[-1])
 
 if __name__ == '__main__':
     main()
