@@ -264,7 +264,11 @@ def get_refed_issues(from_, to_):
     return data['issues']
 
 
-def print_ref(ref, ii):
+def get_all_issues():
+    return {}
+
+
+def print_ref(ref, ii, aii):
     cmd = 'git for-each-ref --sort=taggerdate --format'.split()
     cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
     log.debug("cmd '%s'", cmd)
@@ -293,9 +297,10 @@ def main():
         chlog.append([tl[0], ii])
         del tl[0]
 
+    ii = get_all_issues()
     for c in chlog:
-        print_ref(c[0], c[1])
-    # print_log(tl[-2], tl[-1])
+        print_ref(c[0], c[1], ii)
+
 
 if __name__ == '__main__':
     main()
