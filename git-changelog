@@ -65,36 +65,6 @@ p.add_argument("--version", action='version',
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
 
-p.add_argument("-n", help="Search first N shows only",
-               metavar='N', dest="limit", type=int, default=30)
-p.add_argument("--scan-rare",
-               help="Scan rare (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--scan-watchlist",
-               help="Scan watchlist (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--scan-local",
-               help="Scan local torrents (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-kat",
-               help="Search KickAss Torrents (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-air-dates",
-               help="Search Air Dates (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-status",
-               help="Search IsMyShowCancelled (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--search-trends",
-               help="Search KAT for trends (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--rare", help="Show rare shows",
-               dest='rare', action="store_true")
-p.add_argument("--trends", help="Show trends",
-               dest='trends', action="store_true")
-p.add_argument("name",
-               help="Show name",
-               nargs='?')
 
 args = p.parse_args()
 
@@ -124,6 +94,94 @@ def mkdir_p(path):
 def signal_handler(signal, frame):
     print
     sys.exit(1)
+
+############################################
+# Issue Provders
+############################################
+
+class Issues(object):
+    def __init__(self):
+        self.name = 'base'
+        self.issues = {}
+        self.load()
+
+    def __str__(self):
+        s = self.name + ' issues: '
+        s += ', '.join(sorted(self.issues.keys()))
+        return s
+
+    def load(self):
+        pass
+
+    def close_issue(self, ino):
+        try:
+            self.issues[ino]['state'] = 'closed'
+        except:
+            pass
+
+
+    def changelog(self, issues):
+        '''
+        Returns changelog composed from closed issues among `issues`
+        '''
+        chlog = ''
+        links = ''
+        for ino in issues:
+            if ino not in self.issues:
+                continue
+            i = self.issue[ino]
+            if i['status'] != 'closed':
+                continue
+            chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
+            links += '[#%s]: %s\n' % (i['number'], i['html_url'])
+        return  chlog + '\n' + links + '\n'
+
+
+class GithubIssues(Issues):
+    def __init__(self, user, repo, password=None):
+        self.user = user
+        self.repo = repo
+        self.password = password
+        super(GithubIssues, self).__init__()
+
+
+    def load(self):
+        if self.password is None:
+            print "Enter password for", self.user, "at github.com"
+            print "or leave empty for unauthenticated access"
+            self.password = raw_input("Password: ").strip()
+
+        cmd = ['curl', '-s']
+        if self.password:
+            cmd += ['-u', self.user + ':' + self.password]
+
+        page = 1
+        url = "https://api.github.com/repos/%s/%s/issues" % \
+              (self.user, self.repo)
+        while True:
+            if page > 5:
+                break
+            purl = url + '?state=all&per_page=30&page=' + str(page)
+            pcmd = cmd + [purl]
+            log.debug("cmd '%s'", pcmd)
+            text = sp.check_output(pcmd)
+            try:
+                issues = json.loads(text)
+            except:
+                break
+            if not isinstance(issues, list) or len(issues) == 0:
+                break
+            for i in issues:
+                no = str(i['number'])
+                ni = {
+                    'number': no,
+                    'title': i['title'],
+                    'state': i['state'],
+                    'url': i['html_url']
+                }
+                self.issues[no] = ni
+            page += 1
+
 
 
 ############################################
@@ -180,12 +238,18 @@ def time_line():
 
 def get_refed_issues(from_, to_):
 
+    closed = [
+        'close', 'closes', 'closed',
+        'fix', 'fixes', 'fixed',
+        'resolve', 'resolves', 'resolved'
+    ]
+
     data = {
-        'issues': []
+        'issues': {}
     }
     regs = ['#(?P<num>\d+)\W', '\Wgh-(?P<num2>\d+)\W']
     regs = ['(%s)' % r for r in regs]
-    reg = '|'.join(regs)
+    reg = '(?P<act>\w+\s+)?' + '|'.join(regs)
     reg = re.compile(reg)
 
     def start_start(line):
@@ -226,10 +290,27 @@ def get_refed_issues(from_, to_):
             issue = m.group('num')
             if not issue:
                 issue = m.group('num2')
-            if issue:
-                # log.info("issue %s", issue)
-                if issue not in data['issues']:
-                    data['issues'].append(issue)
+            if not issue:
+                continue
+            act = m.group('act')
+            if act is None:
+                act = ''
+            else:
+                act = act.strip()
+            if act in closed:
+                state = "closed"
+            else:
+                state = "open"
+            log.debug("issue %s act '%s'", issue, state)
+            if issue not in data['issues']:
+                i = {
+                    "number": issue,
+                    "state": state
+                }
+                data['issues'][issue] = i
+            elif state == "closed":
+                data['issues'][issue]['state'] = 'closed'
+
 
     def header_start(line):
         # log.debug("enter")
@@ -261,6 +342,8 @@ def get_refed_issues(from_, to_):
             body_cont(line)
         else:
             pass
+
+    log.debug("issues %s", json.dumps(data['issues'], indent=4))
     return data['issues']
 
 
@@ -368,22 +451,46 @@ def print_ref(ref, ii, aii):
     s += links
     return s
 
+def get_all_issues_new():
+    cmd = 'git remote -v'.split()
+    log.debug("cmd '%s'", cmd)
+    origins = sp.check_output(cmd).splitlines()
+    for line in origins:
+        origin = line.split()[1]
+        if origin.startswith('https://github.com/'):
+            origin = origin.split('/')
+            user = origin[3]
+            repo = origin[4]
+            if repo.endswith(".git"):
+                repo = repo[:-4]
+            return GithubIssues(user, repo)
+    return Issues()
+
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
+
+    aii = get_all_issues_new()
+    log.debug("%s", aii)
     tl = time_line()
+
     tl.reverse()
     chlog = []
     while len(tl) > 1:
         ii = get_refed_issues(tl[1], tl[0])
+        for no in ii:
+            if ii[no]['state'] == 'closed':
+                aii.close_issue(no)
         chlog.append([tl[0], ii])
         del tl[0]
+    log.debug("chlog %s", json.dumps(chlog, indent=4))
+    exit(0)
 
-    aii = get_all_issues()
-    log.debug("aii %s", json.dumps(aii, indent=4))
-    for c in chlog:
-        s = print_ref(c[0], c[1], aii)
-        print s
+
+    # log.debug("aii %s", json.dumps(aii, indent=4))
+    # for c in chlog:
+    #     s = print_ref(c[0], c[1], aii)
+    #     print s
 
 
 if __name__ == '__main__':
