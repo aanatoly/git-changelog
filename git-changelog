@@ -294,7 +294,7 @@ def get_all_github_issues_real(origin):
     while True:
         if page > 5:
             break
-        purl = url + '?state=closed&per_page=30&page=' + str(page)
+        purl = url + '?state=all&per_page=30&page=' + str(page)
         pcmd = cmd + [purl]
         log.debug("cmd '%s'", pcmd)
         text = sp.check_output(pcmd)
