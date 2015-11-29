@@ -142,8 +142,11 @@ class Issues(object):
             i = self.issues[ino]
             if i['state'] != 'closed' and issues[ino]['state'] != 'closed':
                 continue
-            chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
-            links += '[#%s]: %s\n' % (i['number'], i['url'])
+            if 'title' in i:
+                chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
+                links += '[#%s]: %s\n' % (i['number'], i['url'])
+            else:
+                chlog += ' * [#%s]\n' % (i['number'], )
         if chlog:
             chlog += '\n'
         if links:
