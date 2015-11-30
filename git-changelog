@@ -201,7 +201,11 @@ class Issues(object):
                 chlog += ' * [#%s]\n' % (i['number'], )
         if chlog:
             chlog += '\n'
-        return header + chlog + links
+        rc = header + chlog + links
+        # strip trailing ws
+        rc = [r.rstrip() for r in rc.splitlines()]
+        rc = '\n'.join(rc) + '\n'
+        return rc
 
 
 class GithubIssues(Issues):
