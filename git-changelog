@@ -27,6 +27,7 @@ import signal
 import time
 import subprocess as sp
 import re
+import getpass
 
 ############################################
 # Logging
@@ -147,8 +148,8 @@ class Issues(object):
         if self.password is None:
             print >> sys.stderr, "Enter password for", self.user, "@", self.name
             print >> sys.stderr, "or leave empty for unauthenticated access"
-            print >> sys.stderr, "Password: ",
-            self.password = raw_input().strip()
+            # FIXME: should we strip password?, can 'space' be part of it?
+            self.password = getpass.getpass("Password: ").strip()
 
         page = 1
         while True:
