@@ -1,5 +1,10 @@
+
+## Version: feature/12
+Date: 2015-11-30 06:33:28
+
+
 ## Version: 0.4
-Date: 2015-11-30 06:28:10
+Date: 2015-11-30 06:33:20
 
  * [#11] use git-flow release name, if available
  * [#7] fix access to read-only github repos

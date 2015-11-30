@@ -186,7 +186,7 @@ class Issues(object):
         if self.last_ver:
             ver = self.last_ver
             self.last_ver = ''
-        header = "## Version: %s\nDate: %s\n" % (ver, date)
+        header = "\n## Version: %s\nDate: %s\n" % (ver, date)
         header += '\n'
 
         chlog = ''
@@ -204,8 +204,6 @@ class Issues(object):
                 chlog += ' * [#%s]\n' % (i['number'], )
         if chlog:
             chlog += '\n'
-        if links:
-            links += '\n'
         return  header + chlog + links
 
 
