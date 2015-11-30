@@ -8,7 +8,7 @@ Requires git:
 '''
 
 prog_name = "git-changelog"
-prog_version = "0.3"
+prog_version = "0.4"
 prog_epilog = '''
 Example:
    %(prog)s --rare
@@ -94,7 +94,7 @@ def mkdir_p(path):
 
 
 def signal_handler(signal, frame):
-    print
+    print >> sys.stderr
     sys.exit(1)
 
 def reg_issues():
@@ -125,6 +125,7 @@ class Issues(object):
         self.repo = repo
         self.password = password
         self.issues = {}
+        self.last_ver = ''
         self.load()
 
     def __str__(self):
@@ -133,10 +134,24 @@ class Issues(object):
         return s
 
     def load(self):
+
+        cmd = 'git flow release'.split()
+        log.debug("cmd '%s'", cmd)
+        try:
+            null = open('/dev/null', 'w')
+            text = sp.check_output(cmd, stderr=null).splitlines()
+            for line in text:
+                if line.startswith('* '):
+                    self.last_ver = line[2:]
+                    break
+        except:
+            pass
+
         if self.password is None:
-            print "Enter password for", self.user, "@", self.name
-            print "or leave empty for unauthenticated access"
-            self.password = raw_input("Password: ").strip()
+            print >> sys.stderr, "Enter password for", self.user, "@", self.name
+            print >> sys.stderr, "or leave empty for unauthenticated access"
+            print >> sys.stderr, "Password: ",
+            self.password = raw_input().strip()
 
         page = 1
         while True:
@@ -168,6 +183,9 @@ class Issues(object):
         date = sp.check_output(cmd).strip().split()[:2]
         date = ' '.join(date)
         ver = '/'.join(ref.split('/')[2:])
+        if self.last_ver:
+            ver = self.last_ver
+            self.last_ver = ''
         header = "## Version: %s\nDate: %s\n" % (ver, date)
         header += '\n'
 
@@ -211,7 +229,7 @@ class GithubIssues(Issues):
         try:
             issues = json.loads(issues)
         except Exception as e:
-            print self.name, e
+            print >> sys.stderr, self.name, e
             log.debug("issues %s", issues)
             return False
         if not issues:
@@ -302,8 +320,7 @@ class BitbucketIssues(Issues):
         try:
             issues = json.loads(issues)
         except Exception as e:
-            print self.name, "error", e
-            print self.name, "issues", issues
+            print >> sys.stderr, self.name, "error", e
             return False
         if not issues:
             return False
@@ -493,7 +510,7 @@ def get_all_issues():
         if origin.endswith(".git"):
             origin = origin[:-4]
         # url https://github.com/user/repo
-        if 'https://github.com/' in origin:
+        if 'github.com/' in origin:
             origin = origin.split('/')
             user = origin[3]
             repo = origin[4]
