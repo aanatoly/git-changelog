@@ -1,6 +1,6 @@
 
-## Version: develop
-Date: 2015-11-30 16:08:38
+## Version: 0.5
+Date: 2015-11-30 16:11:26
 
  * [#13] remove trailng whitespace from issue title
  * [#12] remove trailng whitespace
