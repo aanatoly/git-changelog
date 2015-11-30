@@ -94,7 +94,7 @@ def mkdir_p(path):
 
 
 def signal_handler(signal, frame):
-    print
+    print >> sys.stderr
     sys.exit(1)
 
 def reg_issues():
@@ -212,7 +212,7 @@ class GithubIssues(Issues):
         try:
             issues = json.loads(issues)
         except Exception as e:
-            print self.name, e
+            print >> sys.stderr, self.name, e
             log.debug("issues %s", issues)
             return False
         if not issues:
@@ -303,8 +303,7 @@ class BitbucketIssues(Issues):
         try:
             issues = json.loads(issues)
         except Exception as e:
-            print self.name, "error", e
-            print self.name, "issues", issues
+            print >> sys.stderr, self.name, "error", e
             return False
         if not issues:
             return False
