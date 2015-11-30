@@ -1,10 +1,12 @@
 
 ## Version: develop
-Date: 2015-11-30 15:54:50
+Date: 2015-11-30 16:08:38
 
+ * [#13] remove trailng whitespace from issue title
  * [#12] remove trailng whitespace
  * [#8] hide typed password
 
+[#13]: https://github.com/aanatoly/git-changelog/issues/13
 [#12]: https://github.com/aanatoly/git-changelog/issues/12
 [#8]: https://github.com/aanatoly/git-changelog/issues/8
 
