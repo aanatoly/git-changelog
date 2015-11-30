@@ -493,7 +493,7 @@ def get_all_issues():
         if origin.endswith(".git"):
             origin = origin[:-4]
         # url https://github.com/user/repo
-        if 'https://github.com/' in origin:
+        if 'github.com/' in origin:
             origin = origin.split('/')
             user = origin[3]
             repo = origin[4]
