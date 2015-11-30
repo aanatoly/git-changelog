@@ -8,7 +8,7 @@ Requires git:
 '''
 
 prog_name = "git-changelog"
-prog_version = "0.2"
+prog_version = "0.3"
 prog_epilog = '''
 Example:
    %(prog)s --rare
@@ -64,37 +64,9 @@ p.add_argument("--version", action='version',
                version='%(prog)s ' + prog_version)
 p.add_argument("-v", help="verbose mode",
                dest='verbose', action="store_true")
-
-p.add_argument("-n", help="Search first N shows only",
-               metavar='N', dest="limit", type=int, default=30)
-p.add_argument("--scan-rare",
-               help="Scan rare (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--scan-watchlist",
-               help="Scan watchlist (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--scan-local",
-               help="Scan local torrents (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-kat",
-               help="Search KickAss Torrents (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-air-dates",
-               help="Search Air Dates (default: %(default)s)",
-               choices=['yes', 'no'], default='yes')
-p.add_argument("--search-status",
-               help="Search IsMyShowCancelled (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--search-trends",
-               help="Search KAT for trends (default: %(default)s)",
-               choices=['yes', 'no'], default='no')
-p.add_argument("--rare", help="Show rare shows",
-               dest='rare', action="store_true")
-p.add_argument("--trends", help="Show trends",
-               dest='trends', action="store_true")
-p.add_argument("name",
-               help="Show name",
+p.add_argument("file", help="changelog file",
                nargs='?')
+
 
 args = p.parse_args()
 
@@ -125,6 +97,231 @@ def signal_handler(signal, frame):
     print
     sys.exit(1)
 
+def reg_issues():
+    regs = ['#(?P<num>\d+)', 'gh-(?P<num2>\d+)']
+    regs = ['(%s)' % r for r in regs]
+    reg = '(?P<act>\w+\s+)?' + '(' + '|'.join(regs) + ')'
+    log.debug("reg '%s'", reg)
+    reg = re.compile(reg)
+    return reg
+
+reg = reg_issues()
+closed = [
+    'close', 'closes', 'closed',
+    'fix', 'fixes', 'fixed',
+    'resolve', 'resolves', 'resolved'
+]
+
+############################################
+# Issue Provders
+############################################
+
+class Issues(object):
+    page_size = 30
+
+    def __init__(self, name, user=None, repo=None, password=None):
+        self.name = name
+        self.user = user
+        self.repo = repo
+        self.password = password
+        self.issues = {}
+        self.load()
+
+    def __str__(self):
+        s = self.name + ' issues: '
+        s += ', '.join(sorted(self.issues.keys()))
+        return s
+
+    def load(self):
+        if self.password is None:
+            print "Enter password for", self.user, "@", self.name
+            print "or leave empty for unauthenticated access"
+            self.password = raw_input("Password: ").strip()
+
+        page = 1
+        while True:
+            if page > 5:
+                break
+            jsname = '%s-%02d.json' % (self.name, page)
+            if args.debug and os.path.exists(jsname):
+                js = open(jsname, 'r').read()
+            else:
+                js = self.load_page(page)
+            if args.debug:
+                open(jsname, 'w').write(js)
+            page += 1
+            if not self.parse_page(js):
+                break
+
+
+    def load_page(self, page):
+        pass
+
+    def changelog(self, ref, issues):
+        '''
+        Returns changelog composed from closed issues among `issues`
+        '''
+
+        cmd = 'git for-each-ref --sort=taggerdate --format'.split()
+        cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
+        log.debug("cmd '%s'", cmd)
+        date = sp.check_output(cmd).strip().split()[:2]
+        date = ' '.join(date)
+        ver = '/'.join(ref.split('/')[2:])
+        header = "## Version: %s\nDate: %s\n" % (ver, date)
+        header += '\n'
+
+        chlog = ''
+        links = ''
+        for ino in sorted(issues.keys(), key=int, reverse=True):
+            if ino not in self.issues:
+                continue
+            i = self.issues[ino]
+            if i['state'] != 'closed' and issues[ino]['state'] != 'closed':
+                continue
+            if 'title' in i:
+                chlog += ' * [#%s] %s\n' % (i['number'], i['title'])
+                links += '[#%s]: %s\n' % (i['number'], i['url'])
+            else:
+                chlog += ' * [#%s]\n' % (i['number'], )
+        if chlog:
+            chlog += '\n'
+        if links:
+            links += '\n'
+        return  header + chlog + links
+
+
+class GithubIssues(Issues):
+    def __init__(self, user, repo, password=None):
+        super(GithubIssues, self).__init__('github', user, repo, password)
+
+    def load_page(self, page):
+        cmd = ['curl', '-s']
+        if self.password:
+            cmd += ['-u', self.user + ':' + self.password]
+
+        url = "https://api.github.com/repos/%s/%s/issues" % \
+              (self.user, self.repo)
+        opts = '?state=all&per_page=%d&page=%d' % (self.page_size, page)
+        cmd += [url + opts]
+        log.debug("cmd '%s'", cmd)
+        return sp.check_output(cmd)
+
+    def parse_page(self, issues):
+        try:
+            issues = json.loads(issues)
+        except Exception as e:
+            print self.name, e
+            log.debug("issues %s", issues)
+            return False
+        if not issues:
+            return False
+        for i in issues:
+            no = str(i['number'])
+            ni = {
+                'number': no,
+                'title': i['title'],
+                'state': i['state'],
+                'url': i['html_url']
+            }
+            self.issues[no] = ni
+        return True
+
+
+class LocalRepoIssues(Issues):
+    def __init__(self):
+        super(LocalRepoIssues, self).__init__('local', password='')
+
+    def load_page(self, page):
+        log.debug("get issues: %s %s %s", self.name, self.user, self.repo)
+        cmd = 'git log --pretty=medium -n %d --skip=%d'
+        cmd = cmd % (self.page_size, self.page_size * (page - 1))
+        cmd = cmd.split()
+        log.debug("cmd '%s'", cmd)
+        js = sp.check_output(cmd)
+        return js
+
+    def parse_page(self, issues):
+        if not issues:
+            return False
+        for line in issues.splitlines():
+            line = line.rstrip()
+            if not (line and line[0].isspace()):
+                continue
+            self.parse_page_line(line)
+        return True
+
+    def parse_page_line(self, line):
+        for m in reg.finditer(line):
+            issue = m.group('num')
+            if not issue:
+                issue = m.group('num2')
+            if not issue:
+                continue
+            act = m.group('act')
+            if act is None:
+                act = ''
+            else:
+                act = act.strip()
+            if act in closed:
+                state = "closed"
+            else:
+                state = "open"
+            log.debug("issue %s act '%s'", issue, state)
+            if issue not in self.issues:
+                i = {
+                    "number": issue,
+                    "state": state
+                }
+                self.issues[issue] = i
+            elif state == "closed":
+                self.issues[issue]['state'] = 'closed'
+
+
+class BitbucketIssues(Issues):
+    def __init__(self, user, repo, password=None):
+        super(BitbucketIssues, self).__init__('bitbucket', user, repo, password)
+
+
+    def load_page(self, page):
+        cmd = ['curl', '-s']
+        if self.password:
+            cmd += ['-u', self.user + ':' + self.password]
+        url = "https://api.bitbucket.org/2.0/repositories/%s/%s/issues"
+        url = url % (self.user, self.repo)
+        opts = '?limit=%d&pagelen=%d&page=%d'
+        opts = opts % (self.page_size, self.page_size, page)
+        cmd += [url + opts]
+        log.debug("cmd '%s'", cmd)
+        text = sp.check_output(cmd)
+        return text
+
+    def parse_page(self, issues):
+        if not issues.strip():
+            return False
+        try:
+            issues = json.loads(issues)
+        except Exception as e:
+            print self.name, "error", e
+            print self.name, "issues", issues
+            return False
+        if not issues:
+            return False
+        if not ('values' in issues and issues['values']):
+            return False
+        for i in issues['values']:
+            no = str(i['id'])
+            url = 'https://bitbucket.org/%s/%s/issues/%s/'
+            url = url % (self.user, self.repo, no)
+            ni = {
+                'number': no,
+                'title': i['title'],
+                'state': i['state'],
+                # 'url': i['links']['html']['href']
+                'url': url
+            }
+            self.issues[no] = ni
+        return True
 
 ############################################
 # Main
@@ -178,15 +375,13 @@ def time_line():
     log.debug("tl %s", json.dumps(tl, indent=4))
     return tl
 
+
 def get_refed_issues(from_, to_):
 
+
     data = {
-        'issues': []
+        'issues': {}
     }
-    regs = ['#(?P<num>\d+)\W', '\Wgh-(?P<num2>\d+)\W']
-    regs = ['(%s)' % r for r in regs]
-    reg = '|'.join(regs)
-    reg = re.compile(reg)
 
     def start_start(line):
         # log.debug("enter")
@@ -213,23 +408,46 @@ def get_refed_issues(from_, to_):
 
     def body_cont(line):
         # log.debug("enter")
-        # log.debug("body: '%s'", line)
+        if '#' in line:
+            log.debug("body: '%s'", line)
         if line.startswith("commit "):
-            # end_start()
             commit_start(line)
             return
         if not line:
             return
         if not line[0].isspace():
             return
+        found = False
         for m in reg.finditer(line):
+            found = True
             issue = m.group('num')
             if not issue:
                 issue = m.group('num2')
-            if issue:
-                # log.info("issue %s", issue)
-                if issue not in data['issues']:
-                    data['issues'].append(issue)
+            if not issue:
+                continue
+            act = m.group('act')
+            # log.debug("issue %s act '%s' line '%s'", issue, act, line)
+            if act is None:
+                act = ''
+            else:
+                act = act.strip()
+            if act in closed:
+                state = "closed"
+            else:
+                state = "open"
+            log.debug("issue %s state '%s'", issue, state)
+            if issue not in data['issues']:
+                i = {
+                    "number": issue,
+                    "state": state
+                }
+                data['issues'][issue] = i
+            elif state == "closed":
+                data['issues'][issue]['state'] = 'closed'
+        if '#' in line and not found:
+            log.error("issue not found in '%s'", line)
+        if 'gh-' in line and not found:
+            log.error("issue not found in '%s'", line)
 
     def header_start(line):
         # log.debug("enter")
@@ -261,74 +479,10 @@ def get_refed_issues(from_, to_):
             body_cont(line)
         else:
             pass
+
+    log.debug("issues %s\n%s", to_, json.dumps(data['issues'], indent=4))
     return data['issues']
 
-
-def get_all_github_issues_debug(origin):
-    try:
-        ii = json.loads(open('github.json', 'r').read())
-        return ii
-    except Exception as e:
-        print "================\n", e
-        return []
-
-
-def get_all_github_issues_real(origin):
-    origin = origin.split('/')
-    owner = origin[3]
-    repo = origin[4]
-    if repo.endswith(".git"):
-        repo = repo[:-4]
-    print "Fetch issues from", '/'.join(origin)
-    print "Enter password, or leave empty for unauthenticated access"
-    password = raw_input("Password: ").strip()
-    log.debug("gihub: owner %s, repo %s, password '%s'",
-              owner, repo, password)
-
-    ii = []
-    page=1
-    cmd = ['curl', '-s']
-    if password:
-        cmd += ['-u', owner + ':' + password]
-    url = "https://api.github.com/repos/%s/%s/issues" % (owner, repo)
-    while True:
-        if page > 5:
-            break
-        purl = url + '?state=closed&per_page=30&page=' + str(page)
-        pcmd = cmd + [purl]
-        log.debug("cmd '%s'", pcmd)
-        text = sp.check_output(pcmd)
-        try:
-            i = json.loads(text)
-        except:
-            break
-        if not isinstance(i, list) or len(i) == 0:
-            break
-        ii += i
-        page += 1
-
-    return ii
-
-
-def get_all_github_issues(origin):
-    lii = []
-    if args.debug:
-        lii = get_all_github_issues_debug(origin)
-        # log.debug("debug lii %s", json.dumps(lii, indent=4))
-    if not lii:
-        lii = get_all_github_issues_real(origin)
-        # log.debug("real lii %s", json.dumps(lii, indent=4))
-    if args.debug:
-        open('github.json', 'w').write(json.dumps(lii, indent=4))
-    aii = {}
-    for i in lii:
-        no = str(i['number'])
-        if no not in aii:
-            aii[no] = {}
-            for k in ['html_url', 'state', 'title', 'number']:
-                aii[no][k] = i[k]
-
-    return aii
 
 def get_all_issues():
     cmd = 'git remote -v'.split()
@@ -336,54 +490,40 @@ def get_all_issues():
     origins = sp.check_output(cmd).splitlines()
     for line in origins:
         origin = line.split()[1]
-        if origin.startswith('https://github.com/'):
-            return get_all_github_issues(origin)
-    return {}
-
-
-def print_ref(ref, ii, aii):
-    log.debug("ref %s", ref)
-    cmd = 'git for-each-ref --sort=taggerdate --format'.split()
-    cmd += ['%(committerdate:iso8601) %(taggerdate:iso8601)', ref]
-    log.debug("cmd '%s'", cmd)
-    date = sp.check_output(cmd).strip().split()[:2]
-    date = ' '.join(date)
-    ver = '/'.join(ref.split('/')[2:])
-    s = "## Version: %s\nDate: %s\n" % (ver, date)
-    s += '\n'
-    if not ii:
-        return s
-
-    links = ''
-    for no in ii:
-        log.debug("no '%s', %s, known %s", no, type(no), (no in aii.keys()))
-        if no in aii.keys():
-            i = aii[no]
-            # s += ' * [#%s][#%s] %s\n' % (i['number'], i['number'], i['title'])
-            s += ' * [#%s] %s\n' % (i['number'], i['title'])
-            links += '[#%s]: %s\n' % (i['number'], i['html_url'])
-        else:
-            s += ' * #%s\n' % no
-    s += '\n'
-    s += links
-    return s
+        if origin.endswith(".git"):
+            origin = origin[:-4]
+        # url https://github.com/user/repo
+        if 'https://github.com/' in origin:
+            origin = origin.split('/')
+            user = origin[3]
+            repo = origin[4]
+            return GithubIssues(user, repo)
+        # url https://user@bitbucket.org/user/repo
+        if 'bitbucket.org/' in origin:
+            origin = origin.split('/')
+            user = origin[3]
+            repo = origin[4]
+            return BitbucketIssues(user, repo)
+    return LocalRepoIssues()
 
 
 def main():
     signal.signal(signal.SIGINT, signal_handler)
+
+    if args.file:
+        f = open(args.file, 'w')
+    else:
+        f = sys.stdout
+    aii = get_all_issues()
+    log.debug("%s", aii)
     tl = time_line()
+
     tl.reverse()
     chlog = []
     while len(tl) > 1:
         ii = get_refed_issues(tl[1], tl[0])
-        chlog.append([tl[0], ii])
+        f.write(aii.changelog(tl[0], ii))
         del tl[0]
-
-    aii = get_all_issues()
-    log.debug("aii %s", json.dumps(aii, indent=4))
-    for c in chlog:
-        s = print_ref(c[0], c[1], aii)
-        print s
 
 
 if __name__ == '__main__':
