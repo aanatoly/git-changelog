@@ -1,10 +1,12 @@
 
 ## Version: develop
-Date: 2015-11-30 06:52:43
+Date: 2015-11-30 15:54:50
 
  * [#12] remove trailng whitespace
+ * [#8] hide typed password
 
 [#12]: https://github.com/aanatoly/git-changelog/issues/12
+[#8]: https://github.com/aanatoly/git-changelog/issues/8
 
 ## Version: 0.4
 Date: 2015-11-30 06:33:20
