@@ -134,9 +134,10 @@ class Issues(object):
 
     def load(self):
         if self.password is None:
-            print "Enter password for", self.user, "@", self.name
-            print "or leave empty for unauthenticated access"
-            self.password = raw_input("Password: ").strip()
+            print >> sys.stderr, "Enter password for", self.user, "@", self.name
+            print >> sys.stderr, "or leave empty for unauthenticated access"
+            print >> sys.stderr, "Password: ",
+            self.password = raw_input().strip()
 
         page = 1
         while True:
