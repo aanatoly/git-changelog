@@ -8,7 +8,7 @@ Requires git:
 '''
 
 prog_name = "git-changelog"
-prog_version = "0.3"
+prog_version = "0.4"
 prog_epilog = '''
 Example:
    %(prog)s --rare

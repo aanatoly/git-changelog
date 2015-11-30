@@ -1,3 +1,14 @@
+## Version: 0.4
+Date: 2015-11-30 06:28:10
+
+ * [#11] use git-flow release name, if available
+ * [#7] fix access to read-only github repos
+ * [#6] print non-log data to stderr
+
+[#11]: https://github.com/aanatoly/git-changelog/issues/11
+[#7]: https://github.com/aanatoly/git-changelog/issues/7
+[#6]: https://github.com/aanatoly/git-changelog/issues/6
+
 ## Version: 0.3
 Date: 2015-11-30 05:06:34
 
