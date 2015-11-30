@@ -1,5 +1,4 @@
 #!/usr/bin/python
-
 '''Print changelog
 Requires git:
 
@@ -8,13 +7,12 @@ Requires git:
 '''
 
 prog_name = "git-changelog"
-prog_version = "0.4"
+prog_version = "0.5"
 prog_epilog = '''
 Example:
    %(prog)s --rare
    %(prog)s --trends
 '''
-
 
 ############################################
 # Imports
@@ -29,6 +27,7 @@ import signal
 import time
 import subprocess as sp
 import re
+import getpass
 
 ############################################
 # Logging
@@ -48,7 +47,6 @@ except:
     h.setFormatter(f)
     log.addHandler(h)
 
-
 ############################################
 # Argument parsing
 ############################################
@@ -58,15 +56,12 @@ p = argparse.ArgumentParser(
     formatter_class=argparse.RawDescriptionHelpFormatter,
     description=__doc__,
     epilog=prog_epilog)
-p.add_argument("--debug", help="debug mode",
-               dest='debug', action="store_true")
-p.add_argument("--version", action='version',
+p.add_argument("--debug", help="debug mode", dest='debug', action="store_true")
+p.add_argument("--version",
+               action='version',
                version='%(prog)s ' + prog_version)
-p.add_argument("-v", help="verbose mode",
-               dest='verbose', action="store_true")
-p.add_argument("file", help="changelog file",
-               nargs='?')
-
+p.add_argument("-v", help="verbose mode", dest='verbose', action="store_true")
+p.add_argument("file", help="changelog file", nargs='?')
 
 args = p.parse_args()
 
@@ -80,6 +75,7 @@ log.debug("Args: %s", json.dumps(vars(args), indent=4, sort_keys=True))
 ############################################
 # Misc
 ############################################
+
 
 def mkdir_p(path):
     path = os.path.expanduser(path)
@@ -97,6 +93,7 @@ def signal_handler(signal, frame):
     print >> sys.stderr
     sys.exit(1)
 
+
 def reg_issues():
     regs = ['#(?P<num>\d+)', 'gh-(?P<num2>\d+)']
     regs = ['(%s)' % r for r in regs]
@@ -105,16 +102,17 @@ def reg_issues():
     reg = re.compile(reg)
     return reg
 
+
 reg = reg_issues()
 closed = [
-    'close', 'closes', 'closed',
-    'fix', 'fixes', 'fixed',
-    'resolve', 'resolves', 'resolved'
+    'close', 'closes', 'closed', 'fix', 'fixes', 'fixed', 'resolve',
+    'resolves', 'resolved'
 ]
 
 ############################################
 # Issue Provders
 ############################################
+
 
 class Issues(object):
     page_size = 30
@@ -150,8 +148,8 @@ class Issues(object):
         if self.password is None:
             print >> sys.stderr, "Enter password for", self.user, "@", self.name
             print >> sys.stderr, "or leave empty for unauthenticated access"
-            print >> sys.stderr, "Password: ",
-            self.password = raw_input().strip()
+            # FIXME: should we strip password?, can 'space' be part of it?
+            self.password = getpass.getpass("Password: ").strip()
 
         page = 1
         while True:
@@ -167,7 +165,6 @@ class Issues(object):
             page += 1
             if not self.parse_page(js):
                 break
-
 
     def load_page(self, page):
         pass
@@ -186,7 +183,7 @@ class Issues(object):
         if self.last_ver:
             ver = self.last_ver
             self.last_ver = ''
-        header = "## Version: %s\nDate: %s\n" % (ver, date)
+        header = "\n## Version: %s\nDate: %s\n" % (ver, date)
         header += '\n'
 
         chlog = ''
@@ -204,9 +201,11 @@ class Issues(object):
                 chlog += ' * [#%s]\n' % (i['number'], )
         if chlog:
             chlog += '\n'
-        if links:
-            links += '\n'
-        return  header + chlog + links
+        rc = header + chlog + links
+        # strip trailing ws
+        rc = [r.rstrip() for r in rc.splitlines()]
+        rc = '\n'.join(rc) + '\n'
+        return rc
 
 
 class GithubIssues(Issues):
@@ -287,10 +286,7 @@ class LocalRepoIssues(Issues):
                 state = "open"
             log.debug("issue %s act '%s'", issue, state)
             if issue not in self.issues:
-                i = {
-                    "number": issue,
-                    "state": state
-                }
+                i = {"number": issue, "state": state}
                 self.issues[issue] = i
             elif state == "closed":
                 self.issues[issue]['state'] = 'closed'
@@ -298,8 +294,8 @@ class LocalRepoIssues(Issues):
 
 class BitbucketIssues(Issues):
     def __init__(self, user, repo, password=None):
-        super(BitbucketIssues, self).__init__('bitbucket', user, repo, password)
-
+        super(BitbucketIssues, self).__init__('bitbucket', user, repo,
+                                              password)
 
     def load_page(self, page):
         cmd = ['curl', '-s']
@@ -343,6 +339,7 @@ class BitbucketIssues(Issues):
 ############################################
 # Main
 ############################################
+
 
 def time_line():
 
@@ -395,10 +392,7 @@ def time_line():
 
 def get_refed_issues(from_, to_):
 
-
-    data = {
-        'issues': {}
-    }
+    data = {'issues': {}}
 
     def start_start(line):
         # log.debug("enter")
@@ -454,10 +448,7 @@ def get_refed_issues(from_, to_):
                 state = "open"
             log.debug("issue %s state '%s'", issue, state)
             if issue not in data['issues']:
-                i = {
-                    "number": issue,
-                    "state": state
-                }
+                i = {"number": issue, "state": state}
                 data['issues'][issue] = i
             elif state == "closed":
                 data['issues'][issue]['state'] = 'closed'
@@ -477,7 +468,7 @@ def get_refed_issues(from_, to_):
 
     # log.info("log: %s vs %s", from_, to_)
     cmd = 'git log --pretty=medium'.split()
-    cmd += [ from_ + '..' + to_]
+    cmd += [from_ + '..' + to_]
     log.debug("cmd '%s'", cmd)
     proc = sp.Popen(cmd, stdout=sp.PIPE)
     start_start('')

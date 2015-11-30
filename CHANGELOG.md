@@ -1,5 +1,17 @@
+
+## Version: 0.5
+Date: 2015-11-30 16:11:26
+
+ * [#13] remove trailng whitespace from issue title
+ * [#12] remove trailng whitespace
+ * [#8] hide typed password
+
+[#13]: https://github.com/aanatoly/git-changelog/issues/13
+[#12]: https://github.com/aanatoly/git-changelog/issues/12
+[#8]: https://github.com/aanatoly/git-changelog/issues/8
+
 ## Version: 0.4
-Date: 2015-11-30 06:28:10
+Date: 2015-11-30 06:33:20
 
  * [#11] use git-flow release name, if available
  * [#7] fix access to read-only github repos
