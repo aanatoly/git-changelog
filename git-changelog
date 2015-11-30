@@ -125,6 +125,7 @@ class Issues(object):
         self.repo = repo
         self.password = password
         self.issues = {}
+        self.last_ver = ''
         self.load()
 
     def __str__(self):
@@ -133,6 +134,19 @@ class Issues(object):
         return s
 
     def load(self):
+
+        cmd = 'git flow release'.split()
+        log.debug("cmd '%s'", cmd)
+        try:
+            null = open('/dev/null', 'w')
+            text = sp.check_output(cmd, stderr=null).splitlines()
+            for line in text:
+                if line.startswith('* '):
+                    self.last_ver = line[2:]
+                    break
+        except:
+            pass
+
         if self.password is None:
             print >> sys.stderr, "Enter password for", self.user, "@", self.name
             print >> sys.stderr, "or leave empty for unauthenticated access"
@@ -169,6 +183,9 @@ class Issues(object):
         date = sp.check_output(cmd).strip().split()[:2]
         date = ' '.join(date)
         ver = '/'.join(ref.split('/')[2:])
+        if self.last_ver:
+            ver = self.last_ver
+            self.last_ver = ''
         header = "## Version: %s\nDate: %s\n" % (ver, date)
         header += '\n'
 
