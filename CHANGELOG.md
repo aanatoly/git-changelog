@@ -1,7 +1,10 @@
 
-## Version: feature/12
-Date: 2015-11-30 06:33:28
+## Version: develop
+Date: 2015-11-30 06:52:43
 
+ * [#12] remove trailng whitespace
+
+[#12]: https://github.com/aanatoly/git-changelog/issues/12
 
 ## Version: 0.4
 Date: 2015-11-30 06:33:20
