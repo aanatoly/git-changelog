@@ -10,8 +10,7 @@ prog_name = "git-changelog"
 prog_version = "0.5"
 prog_epilog = '''
 Example:
-   %(prog)s --rare
-   %(prog)s --trends
+   %(prog)s
 '''
 
 ############################################
