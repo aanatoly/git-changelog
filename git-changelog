@@ -219,7 +219,9 @@ class GithubIssues(Issues):
         url = "https://api.github.com/repos/%s/%s/issues" % \
               (self.user, self.repo)
         opts = '?state=all&per_page=%d&page=%d' % (self.page_size, page)
-        cmd += [url + opts]
+        url += opts
+        log.info("Fetch %s", url)
+        cmd += [url]
         log.debug("cmd '%s'", cmd)
         return sp.check_output(cmd)
 
@@ -304,7 +306,9 @@ class BitbucketIssues(Issues):
         url = url % (self.user, self.repo)
         opts = '?limit=%d&pagelen=%d&page=%d'
         opts = opts % (self.page_size, self.page_size, page)
-        cmd += [url + opts]
+        url += opts
+        log.info("Fetch %s", url)
+        cmd += [url]
         log.debug("cmd '%s'", cmd)
         text = sp.check_output(cmd)
         return text
@@ -487,9 +491,17 @@ def get_refed_issues(from_, to_):
         else:
             pass
 
+    log.info("Got %d issues from '%s' to '%s'", len(data['issues']),
+             git_short_name(from_), git_short_name(to_))
     log.debug("issues %s\n%s", to_, json.dumps(data['issues'], indent=4))
     return data['issues']
 
+def git_short_name(ref):
+    if ref.startswith('refs/'):
+        return ref[5:]
+    if ref.isalnum() and len(ref) > 7:
+        return ref[:7]
+    return ref
 
 def get_all_issues():
     cmd = 'git remote -v'.split()
