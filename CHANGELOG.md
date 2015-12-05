@@ -1,6 +1,13 @@
 
+## Version: develop
+Date: 2015-12-05 21:17:27
+
+ * [#9] update README
+
+[#9]: https://github.com/aanatoly/git-changelog/issues/9
+
 ## Version: 0.5
-Date: 2015-11-30 16:11:26
+Date: 2015-11-30 16:13:30
 
  * [#13] remove trailng whitespace from issue title
  * [#12] remove trailng whitespace
