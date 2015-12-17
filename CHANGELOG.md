@@ -1,9 +1,11 @@
 
 ## Version: develop
-Date: 2015-12-05 21:17:27
+Date: 2015-12-06 01:26:32
 
+ * [#15] assign correct log level for log messages
  * [#9] update README
 
+[#15]: https://github.com/aanatoly/git-changelog/issues/15
 [#9]: https://github.com/aanatoly/git-changelog/issues/9
 
 ## Version: 0.5
